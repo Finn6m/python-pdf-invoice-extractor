@@ -1,0 +1,92 @@
+import os
+import json
+import base64
+from pathlib import Path
+
+from anthropic import Anthropic
+from dotenv import load_dotenv
+
+from app.models.schemas import schema
+from app.services.exporter import export_to_excel
+
+
+load_dotenv()
+
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+if not api_key:
+    raise ValueError("ANTHROPIC_API_KEY not found")
+
+client = Anthropic(
+    api_key=api_key
+)
+
+
+# Always points to backend/app/invoices
+invoice_folder = Path(__file__).resolve().parents[1] / "invoices"
+
+excel_file = "invoices_db.xlsx"
+
+all_rows = []
+
+
+for pdf_file in invoice_folder.glob("*.pdf"):
+
+    print(f"Processing {pdf_file.name}...")
+
+    pdf_data = base64.b64encode(
+        pdf_file.read_bytes()
+    ).decode("utf-8")
+
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_data
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": f"""
+                                Extract the invoice information.
+
+                                Return ONLY valid JSON.
+
+                                Use this schema:
+
+                                {json.dumps(schema)}
+                                """
+                        }
+                    ]
+                }
+            ]
+        )
+    
+
+    invoice_json = response.content[0].text
+
+    #get rid of code fences from claudes response so that json.loads() doesnt fail
+    invoice_json = invoice_json.replace("```json", "")
+    invoice_json = invoice_json.replace("```", "")
+    invoice_json = invoice_json.strip()
+
+    try:
+        invoice_data = json.loads(invoice_json)
+        all_rows.append(invoice_data)
+
+    except json.JSONDecodeError:
+            print(f"Could not parse {pdf_file.name}")
+
+
+print(all_rows)
+
+export_to_excel(all_rows)
