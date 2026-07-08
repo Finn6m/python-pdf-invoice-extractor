@@ -23,68 +23,59 @@ client = Anthropic(
 
 
 #TODO: when FastAPI post route is set up, add pdf_path as a param
-def extract_invoice():
-
-    # Always points to backend/app/invoices
-    invoice_folder = Path(__file__).resolve().parents[1] / "invoices"
-
-    all_rows = []
+def extract_invoice(pdf_path: Path):
      
-    for pdf_file in invoice_folder.glob("*.pdf"):
+    print(f"Processing {pdf_path.name}...")
 
-        print(f"Processing {pdf_file.name}...")
-
-        pdf_data = base64.b64encode(
-            pdf_file.read_bytes()
-        ).decode("utf-8")
+    pdf_data = base64.b64encode(
+        pdf_path.read_bytes()
+    ).decode("utf-8")
 
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": pdf_data
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": f"""
-                                    Extract the invoice information.
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_data
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": f"""
+                                Extract the invoice information.
 
-                                    Return ONLY valid JSON.
+                                Return ONLY valid JSON.
 
-                                    Use this schema:
+                                Use this schema:
 
-                                    {json.dumps(schema)}
-                                    """
-                            }
-                        ]
-                    }
-                ]
-            )
-        
+                                {json.dumps(schema)}
+                                """
+                        }
+                    ]
+                }
+            ]
+        )
+    
 
-        invoice_json = response.content[0].text
+    invoice_json = response.content[0].text
 
-        #get rid of code fences from claudes response so that json.loads() doesnt fail
-        invoice_json = invoice_json.replace("```json", "")
-        invoice_json = invoice_json.replace("```", "")
-        invoice_json = invoice_json.strip()
+    #get rid of code fences from claudes response so that json.loads() doesnt fail
+    invoice_json = invoice_json.replace("```json", "")
+    invoice_json = invoice_json.replace("```", "")
+    invoice_json = invoice_json.strip()
 
-        try:
-            invoice_data = json.loads(invoice_json)
-            all_rows.append(invoice_data)
+    try:
+        invoice_data = json.loads(invoice_json)
+        return invoice_data
 
-        except json.JSONDecodeError:
-            print(f"Could not parse {pdf_file.name}")
-
-
-    return all_rows
+    except json.JSONDecodeError:
+        print(f"Could not parse {pdf_path.name}")
+        return None
